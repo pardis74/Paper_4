@@ -1,0 +1,43 @@
+    def _decode_solution(self, solution):
+        """
+        Decodes a flat binary solution vector into the structured decision variables.
+        """
+        idx = 0
+        # x_it: 1 if hub i is established in period t, otherwise 0
+        x_it = solution[idx : idx + self.NUM_HUBS * self.NUM_TIME_PERIODS].reshape(self.NUM_HUBS, self.NUM_TIME_PERIODS)
+        idx += self.NUM_HUBS * self.NUM_TIME_PERIODS
+
+        # x_lit: 1 if hub l is assigned as a backup for hub i in period t, otherwise 0
+        x_lit = solution[idx : idx + self.NUM_BACKUP_HUBS * self.NUM_HUBS * self.NUM_TIME_PERIODS].reshape(self.NUM_BACKUP_HUBS, self.NUM_HUBS, self.NUM_TIME_PERIODS)
+        idx += self.NUM_BACKUP_HUBS * self.NUM_HUBS * self.NUM_TIME_PERIODS
+
+        # u_it: 1 if hub i fails in period t, otherwise 0
+        u_it = solution[idx : idx + self.NUM_HUBS * self.NUM_TIME_PERIODS].reshape(self.NUM_HUBS, self.NUM_TIME_PERIODS)
+        idx += self.NUM_HUBS * self.NUM_TIME_PERIODS
+
+        # y_ikt: 1 if node k is connected to hub i in period t, otherwise 0
+        y_ikt = solution[idx : idx + self.NUM_HUBS * self.NUM_NODES * self.NUM_TIME_PERIODS].reshape(self.NUM_HUBS, self.NUM_NODES, self.NUM_TIME_PERIODS)
+        idx += self.NUM_HUBS * self.NUM_NODES * self.NUM_TIME_PERIODS
+
+        # w_ijt: 1 if hub i is connected to hub j in period t, otherwise 0
+        w_ijt = solution[idx : idx + self.NUM_HUBS * self.NUM_HUBS * self.NUM_TIME_PERIODS].reshape(self.NUM_HUBS, self.NUM_HUBS, self.NUM_TIME_PERIODS)
+        # idx += self.NUM_HUBS * self.NUM_HUBS * self.NUM_TIME_PERIODS # Not needed, last variable
+
+        # Derived variables z_ik (data transfer node k to hub i) and v_ij (data transfer hub i to hub j)
+        # Simplified: If connection exists and hub is active, assume full demand/flow, otherwise 0.
+        # Capacity constraints will be handled as penalties.
+        z_ik = np.zeros((self.NUM_HUBS, self.NUM_NODES, self.NUM_TIME_PERIODS))
+        v_ij = np.zeros((self.NUM_HUBS, self.NUM_HUBS, self.NUM_TIME_PERIODS))
+
+        for t in range(self.NUM_TIME_PERIODS):
+            for i in range(self.NUM_HUBS):
+                for k in range(self.NUM_NODES):
+                    # If node k is connected to hub i and hub i is NOT failed
+                    if y_ikt[i, k, t] == 1 and u_it[i, t] == 0:
+                        z_ik[i, k, t] = self.NODE_DEMANDS[k]
+                for j in range(self.NUM_HUBS):
+                    # If hub i is connected to hub j and both are NOT failed
+                    if w_ijt[i, j, t] == 1 and u_it[i, t] == 0 and u_it[j, t] == 0:
+                        v_ij[i, j, t] = self.INTER_HUB_FLOW
+
+        return x_it, x_lit, u_it, y_ikt, w_ijt, z_ik, v_ij
