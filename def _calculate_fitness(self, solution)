@@ -1,0 +1,173 @@
+    def _calculate_fitness(self, solution):
+        """
+        Calculates the fitness of a solution (whale position).
+        This includes calculating the two objective functions (Z1 and Z2)
+        and applying penalties for constraint violations.
+        """
+        x_it, x_lit, u_it, y_ikt, w_ijt, z_ik, v_ij = self._decode_solution(solution)
+
+        # --- Objective Function Z1: Minimize Transfer Time ---
+        z1 = 0.0
+        # Sum of Time_ij * w_ijt
+        z1 += np.sum(self.HUB_HUB_TIMES[:, :, np.newaxis] * w_ijt)
+        # Sum of Time_ik * y_ikt (reshaping to match dimensions)
+        z1 += np.sum(self.NODE_HUB_TIMES[np.newaxis, :, :] * y_ikt.transpose(1, 0, 2)) # Transpose y_ikt to (K, I, T)
+        # Sum of Rtime_l * x_lit (simplified, assuming x_lit sums over i and t for Rtime_l)
+        # The paper's Z1 has sum over l, i, Rtime_l * x_lit. This implies Rtime_l is per backup hub type, not per specific hub.
+        # Assuming Rtime_l is indexed by the backup hub type 'l'
+        for l in range(self.NUM_BACKUP_HUBS):
+            z1 += self.BACKUP_HUB_STARTUP_TIMES[l] * np.sum(x_lit[l, :, :])
+
+        # --- Objective Function Z2: Minimize Network Cost ---
+        z2 = 0.0
+        # Fixed cost of hub installation: FCost_it * x_it
+        z2 += np.sum(self.HUB_ESTABLISHMENT_COSTS * x_it)
+        # Rerouting cost to a backup hub: RCost_lt * beta_i * x_lit
+        # This term is tricky: RCost_lt is (L, T), beta_i is (I), x_lit is (L, I, T)
+        # Assuming RCost_lt applies to backup hub l rerouting for any hub i
+        for l in range(self.NUM_BACKUP_HUBS):
+            for i in range(self.NUM_HUBS):
+                for t in range(self.NUM_TIME_PERIODS):
+                    z2 += self.REROUTING_COSTS[l, t] * self.HUB_FAILURE_PROBABILITY[i] * x_lit[l, i, t]
+        # Maintenance cost of hub i: MiCost_it * x_it
+        z2 += np.sum(self.HUB_MAINTENANCE_COSTS * x_it)
+        # Deactivation cost of hub i: disCost_it * beta_i * u_it
+        z2 += np.sum(self.HUB_DEACTIVATION_COSTS * self.HUB_FAILURE_PROBABILITY[:, np.newaxis] * u_it)
+        # Startup cost of backup hub l: lcost_lt * x_lit
+        for l in range(self.NUM_BACKUP_HUBS):
+            z2 += np.sum(self.BACKUP_HUB_STARTUP_COSTS[l, np.newaxis, :] * x_lit[l, :, :])
+        # Maintenance cost of backup hub l: mcost_lt * x_lit
+        for l in range(self.NUM_BACKUP_HUBS):
+            z2 += np.sum(self.BACKUP_HUB_MAINTENANCE_COSTS[l, np.newaxis, :] * x_lit[l, :, :])
+        # Repair cost of hub i: RiCost_it * beta_i * u_it
+        z2 += np.sum(self.HUB_REPAIR_COSTS * self.HUB_FAILURE_PROBABILITY[:, np.newaxis] * u_it)
+
+        # --- Penalty for Constraint Violations ---
+        penalty = 0.0
+
+        # Constraint (4): y_ikt <= x_it (If a hub is not selected, data transfer to it is not possible)
+        # If y_ikt[i, k, t] == 1 and x_it[i, t] == 0
+        penalty += self.M * np.sum(np.maximum(0, y_ikt - x_it[np.newaxis, :, :].transpose(1, 0, 2))) # Transpose x_it to (I, T)
+
+        # Constraint (5): sum_i(y_ikt) = 1 (Each node connects to only one hub)
+        for k in range(self.NUM_NODES):
+            for t in range(self.NUM_TIME_PERIODS):
+                if np.sum(y_ikt[:, k, t]) != 1:
+                    penalty += self.M
+
+        # Constraint (6): w_ijt <= x_it (If a hub is not selected, other hubs cannot connect to it)
+        # If w_ijt[i, j, t] == 1 and x_it[i, t] == 0 (hub i is source)
+        penalty += self.M * np.sum(np.maximum(0, w_ijt - x_it[:, np.newaxis, :]))
+        # Also, if w_ijt[i, j, t] == 1 and x_it[j, t] == 0 (hub j is destination)
+        penalty += self.M * np.sum(np.maximum(0, w_ijt - x_it[np.newaxis, :, :]))
+
+
+        # Constraint (7): sum_k(z_ik) <= Cap_i (Total data from nodes to hub must not exceed capacity)
+        for i in range(self.NUM_HUBS):
+            for t in range(self.NUM_TIME_PERIODS):
+                if np.sum(z_ik[i, :, t]) > self.HUB_CAPACITIES[i]:
+                    penalty += self.M * (np.sum(z_ik[i, :, t]) - self.HUB_CAPACITIES[i])
+
+        # Constraint (8): sum_j(v_ij) <= Cap_i (Total load transferred from hubs to specific hub must not exceed capacity)
+        # This means sum of incoming v_ji to hub i
+        for i in range(self.NUM_HUBS):
+            for t in range(self.NUM_TIME_PERIODS):
+                if np.sum(v_ij[:, i, t]) > self.HUB_CAPACITIES[i]:
+                    penalty += self.M * (np.sum(v_ij[:, i, t]) - self.HUB_CAPACITIES[i])
+
+        # Constraint (9): z_ik <= M + y_ikt (If node not connected, no data transfer)
+        # This is implicitly handled by z_ik derivation, but check for consistency
+        # If z_ik[i, k, t] > 0 and y_ikt[i, k, t] == 0
+        for i in range(self.NUM_HUBS):
+            for k in range(self.NUM_NODES):
+                for t in range(self.NUM_TIME_PERIODS):
+                    if z_ik[i, k, t] > 0 and y_ikt[i, k, t] == 0:
+                        penalty += self.M
+
+        # Constraint (10): v_ij <= M + w_ijt (If hubs not connected, no data transfer)
+        # If v_ij[i, j, t] > 0 and w_ijt[i, j, t] == 0
+        for i in range(self.NUM_HUBS):
+            for j in range(self.NUM_HUBS):
+                for t in range(self.NUM_TIME_PERIODS):
+                    if v_ij[i, j, t] > 0 and w_ijt[i, j, t] == 0:
+                        penalty += self.M
+
+        # Constraint (11): sum_l(x_lit) = x_it (Backup hub must be of type "hub" and assigned if main hub is established)
+        # This means for each hub i established at time t, exactly one backup hub l must be assigned.
+        # This is a strong constraint. Let's interpret it as: if x_it is 1, then sum_l(x_lit) must be 1.
+        # And if x_it is 0, sum_l(x_lit) must be 0.
+        for i in range(self.NUM_HUBS):
+            for t in range(self.NUM_TIME_PERIODS):
+                if x_it[i, t] == 1 and np.sum(x_lit[:, i, t]) != 1:
+                    penalty += self.M
+                if x_it[i, t] == 0 and np.sum(x_lit[:, i, t]) != 0:
+                    penalty += self.M
+
+        # Constraint (12): x_lit + x_it = 1 (At any given period, either the main hub or its backup hub can be active, but not both)
+        # This is problematic. x_lit is a specific backup 'l' for hub 'i'. If multiple backups, this constraint doesn't make sense.
+        # Re-interpreting: If hub i is established (x_it=1), then no backup for i (x_lit=0 for all l).
+        # If hub i is NOT established (x_it=0), then *one* backup for i (sum_l x_lit = 1).
+        # This implies a failure scenario. The paper's text "either the main hub or its backup hub can be active, but not both"
+        # suggests this is related to a single backup being active if the main fails.
+        # Let's use the interpretation from the paper's diagram: u_it (failure) implies x_lit (backup active).
+        # So, if u_it is 1, then the assigned x_lit should be 1, and x_it should be 0.
+        # If u_it is 0, then x_it should be 1 and x_lit should be 0.
+        # This is better captured by (14) and (15), (16), (17), (18).
+        # For (12), I will assume it means a hub cannot be *both* a main hub and a backup for itself or another hub at the same time.
+        # Or, more simply, if a hub `i` is established (`x_it=1`), it cannot be a backup (`x_lit=1`) for itself or another hub `j`
+        # if `l` refers to the index of hub `i` as a backup. This is ambiguous.
+        # Let's assume it means that for a given hub `i` at time `t`, it cannot be both `x_it=1` AND `x_lit=1` for *any* `l` where `l` refers to a backup for `i`.
+        # This is hard to enforce directly with the current x_lit indexing.
+        # Given the ambiguity, I'll prioritize other constraints and if this becomes critical for performance, I'll revisit.
+        # For now, I'll interpret it as: a hub cannot be simultaneously established AND assigned as a backup for itself.
+        # This is covered by (11) and (13) and (14) if we assume `l` in `x_lit` can refer to `i`.
+        # I will skip direct implementation of (12) due to its ambiguity with `x_lit`'s indexing and its overlap with other constraints,
+        # unless it becomes clear how 'l' relates to 'i' in this specific constraint.
+
+        # Constraint (13): u_it <= x_it (If a hub is not established, it cannot fail)
+        # If u_it[i, t] == 1 and x_it[i, t] == 0
+        penalty += self.M * np.sum(np.maximum(0, u_it - x_it))
+
+        # Constraint (14): u_it = x_lit (If a hub fails, a backup hub must be assigned to it)
+        # This implies that if u_it is 1, then exactly one x_lit for that i should be 1.
+        # And if u_it is 0, then all x_lit for that i should be 0.
+        for i in range(self.NUM_HUBS):
+            for t in range(self.NUM_TIME_PERIODS):
+                if u_it[i, t] == 1 and np.sum(x_lit[:, i, t]) != 1:
+                    penalty += self.M
+                if u_it[i, t] == 0 and np.sum(x_lit[:, i, t]) != 0:
+                    penalty += self.M
+
+        # Constraint (15): u_it != y_ikt (If a hub fails, nodes cannot transfer data to it)
+        # If u_it[i, t] == 1 and y_ikt[i, k, t] == 1 for any k
+        for i in range(self.NUM_HUBS):
+            for t in range(self.NUM_TIME_PERIODS):
+                if u_it[i, t] == 1 and np.sum(y_ikt[i, :, t]) > 0:
+                    penalty += self.M
+
+        # Constraint (16): u_it != w_ijt (If a hub fails, it cannot establish connections with other hubs)
+        # If u_it[i, t] == 1 and (w_ijt[i, j, t] == 1 or w_ijt[j, i, t] == 1 for any j)
+        for i in range(self.NUM_HUBS):
+            for t in range(self.NUM_TIME_PERIODS):
+                if u_it[i, t] == 1 and (np.sum(w_ijt[i, :, t]) > 0 or np.sum(w_ijt[:, i, t]) > 0):
+                    penalty += self.M
+
+        # Constraint (17): z_ik <= M + u_it (If a hub fails, data cannot be transferred via this link)
+        # If u_it[i, t] == 1 and z_ik[i, k, t] > 0 for any k
+        for i in range(self.NUM_HUBS):
+            for k in range(self.NUM_NODES):
+                for t in range(self.NUM_TIME_PERIODS):
+                    if u_it[i, t] == 1 and z_ik[i, k, t] > 0:
+                        penalty += self.M
+
+        # Constraint (18): v_ij <= M + u_it (If a hub fails, data cannot be transferred via this connection)
+        # If u_it[i, t] == 1 and v_ij[i, j, t] > 0 for any j (source hub fails)
+        # If u_it[j, t] == 1 and v_ij[i, j, t] > 0 for any i (destination hub fails)
+        for i in range(self.NUM_HUBS):
+            for j in range(self.NUM_HUBS):
+                for t in range(self.NUM_TIME_PERIODS):
+                    if (u_it[i, t] == 1 or u_it[j, t] == 1) and v_ij[i, j, t] > 0:
+                        penalty += self.M
+
+        # Combine objectives with weights and add penalty
+        total_fitness = (self.WEIGHT_Z1 * z1) + (self.WEIGHT_Z2 * z2) + penalty
