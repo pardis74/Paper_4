@@ -1,0 +1,11 @@
+    def _initialize_population(self):
+        """
+        Initializes the population of whales (candidate solutions).
+        Each whale's position is a binary vector representing the decision variables.
+        """
+        population = []
+        for _ in range(self.POPULATION_SIZE):
+            # Generate random binary values for all decision variables
+            individual = np.random.randint(0, 2, self.DIM)
+            population.append(individual)
+        return np.array(population)
