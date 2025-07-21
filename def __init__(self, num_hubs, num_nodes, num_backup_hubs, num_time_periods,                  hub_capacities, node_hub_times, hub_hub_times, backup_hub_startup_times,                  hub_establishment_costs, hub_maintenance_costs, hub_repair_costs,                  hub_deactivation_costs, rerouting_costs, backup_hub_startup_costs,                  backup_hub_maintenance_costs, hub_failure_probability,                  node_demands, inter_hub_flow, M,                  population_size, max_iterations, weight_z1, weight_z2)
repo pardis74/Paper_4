@@ -1,0 +1,53 @@
+def __init__(self, num_hubs, num_nodes, num_backup_hubs, num_time_periods,
+                 hub_capacities, node_hub_times, hub_hub_times, backup_hub_startup_times,
+                 hub_establishment_costs, hub_maintenance_costs, hub_repair_costs,
+                 hub_deactivation_costs, rerouting_costs, backup_hub_startup_costs,
+                 backup_hub_maintenance_costs, hub_failure_probability,
+                 node_demands, inter_hub_flow, M,
+                 population_size, max_iterations, weight_z1, weight_z2):
+
+        self.NUM_HUBS = num_hubs
+        self.NUM_NODES = num_nodes
+        self.NUM_BACKUP_HUBS = num_backup_hubs
+        self.NUM_TIME_PERIODS = num_time_periods
+
+        self.HUB_CAPACITIES = hub_capacities
+        self.NODE_HUB_TIMES = node_hub_times
+        self.HUB_HUB_TIMES = hub_hub_times
+        self.BACKUP_HUB_STARTUP_TIMES = backup_hub_startup_times
+
+        self.HUB_ESTABLISHMENT_COSTS = hub_establishment_costs
+        self.HUB_MAINTENANCE_COSTS = hub_maintenance_costs
+        self.HUB_REPAIR_COSTS = hub_repair_costs
+        self.HUB_DEACTIVATION_COSTS = hub_deactivation_costs
+        self.REROUTING_COSTS = rerouting_costs
+        self.BACKUP_HUB_STARTUP_COSTS = backup_hub_startup_costs
+        self.BACKUP_HUB_MAINTENANCE_COSTS = backup_hub_maintenance_costs
+        self.HUB_FAILURE_PROBABILITY = hub_failure_probability
+
+        self.NODE_DEMANDS = node_demands
+        self.INTER_HUB_FLOW = inter_hub_flow
+        self.M = M # Large constant for penalties
+
+        self.POPULATION_SIZE = population_size
+        self.MAX_ITERATIONS = max_iterations
+        self.WEIGHT_Z1 = weight_z1
+        self.WEIGHT_Z2 = weight_z2
+
+        # Define the length of the individual (whale position vector)
+        # x_it: NUM_HUBS * NUM_TIME_PERIODS
+        # x_lit: NUM_BACKUP_HUBS * NUM_HUBS * NUM_TIME_PERIODS
+        # u_it: NUM_HUBS * NUM_TIME_PERIODS
+        # y_ikt: NUM_HUBS * NUM_NODES * NUM_TIME_PERIODS
+        # w_ijt: NUM_HUBS * NUM_HUBS * NUM_TIME_PERIODS
+        # Total length of binary decision variables
+        self.DIM = (self.NUM_HUBS * self.NUM_TIME_PERIODS) + \
+                   (self.NUM_BACKUP_HUBS * self.NUM_HUBS * self.NUM_TIME_PERIODS) + \
+                   (self.NUM_HUBS * self.NUM_TIME_PERIODS) + \
+                   (self.NUM_HUBS * self.NUM_NODES * self.NUM_TIME_PERIODS) + \
+                   (self.NUM_HUBS * self.NUM_HUBS * self.NUM_TIME_PERIODS)
+
+        self.population = self._initialize_population()
+        self.best_solution = None
+        self.best_fitness = float('inf')
+        self.fitness_history = []
