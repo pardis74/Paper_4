@@ -1,0 +1,9 @@
+    def _update_best_solution(self):
+        """
+        Updates the global best solution found so far.
+        """
+        for i in range(self.POPULATION_SIZE):
+            current_fitness, _, _ = self._calculate_fitness(self.population[i])
+            if current_fitness < self.best_fitness:
+                self.best_fitness = current_fitness
+                self.best_solution = np.copy(self.population[i])
