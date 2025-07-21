@@ -1,0 +1,39 @@
+# --- Main execution ---
+if __name__ == "__main__":
+    woa = WhaleOptimizationAlgorithm(
+        num_hubs=NUM_HUBS,
+        num_nodes=NUM_NODES,
+        num_backup_hubs=NUM_BACKUP_HUBS,
+        num_time_periods=NUM_TIME_PERIODS,
+        hub_capacities=HUB_CAPACITIES,
+        node_hub_times=NODE_HUB_TIMES,
+        hub_hub_times=HUB_HUB_TIMES,
+        backup_hub_startup_times=BACKUP_HUB_STARTUP_TIMES,
+        hub_establishment_costs=HUB_ESTABLISHMENT_COSTS,
+        hub_maintenance_costs=HUB_MAINTENANCE_COSTS,
+        hub_repair_costs=HUB_REPAIR_COSTS,
+        hub_deactivation_costs=HUB_DEACTIVATION_COSTS,
+        rerouting_costs=REROUTING_COSTS,
+        backup_hub_startup_costs=BACKUP_HUB_STARTUP_COSTS,
+        backup_hub_maintenance_costs=BACKUP_HUB_MAINTENANCE_COSTS,
+        hub_failure_probability=HUB_FAILURE_PROBABILITY,
+        node_demands=NODE_DEMANDS,
+        inter_hub_flow=INTER_HUB_FLOW,
+        M=M,
+        population_size=POPULATION_SIZE,
+        max_iterations=MAX_ITERATIONS,
+        weight_z1=WEIGHT_Z1,
+        weight_z2=WEIGHT_Z2
+    )
+
+    best_solution, best_fitness, fitness_history = woa.optimize()
+
+    # Optional: Plot fitness history
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(10, 6))
+    plt.plot(fitness_history)
+    plt.title("Fitness History (Whale Optimization Algorithm)")
+    plt.xlabel("Iteration")
+    plt.ylabel("Best Fitness Value")
+    plt.grid(True)
+    plt.show()
