@@ -1,0 +1,81 @@
+   def optimize(self):
+        """
+        Runs the Whale Optimization Algorithm.
+        """
+        print("Starting Whale Optimization Algorithm...")
+        for t in range(self.MAX_ITERATIONS):
+            # Update a, A, C, l, p for each iteration
+            a = 2 - t * (2 / self.MAX_ITERATIONS) # 'a' decreases linearly from 2 to 0
+            
+            # Update best solution for current iteration
+            self._update_best_solution()
+
+            for i in range(self.POPULATION_SIZE):
+                r1, r2 = random.random(), random.random()
+                A = 2 * a * r1 - a # Coefficient vector A
+                C = 2 * r2 # Coefficient vector C
+                l = (a - 1) * random.random() + 1 # 'l' is a random number in [-1, 1]
+                p = random.random() # 'p' is a random number in [0, 1]
+
+                current_position = self.population[i]
+                best_position = self.best_solution
+
+                if best_position is None: # Handle case where best_solution is not yet set
+                    best_position = current_position # Fallback to current position for first iteration
+
+                # Calculate D for the current whale
+                D_abs = np.abs(C * best_position - current_position)
+
+                if p < 0.5:
+                    if np.abs(A) < 1:
+                        # Shrinking Encircling Prey (Exploitation)
+                        new_position = best_position - A * D_abs
+                    else:
+                        # Search for Prey (Exploration)
+                        random_whale_idx = random.randint(0, self.POPULATION_SIZE - 1)
+                        X_rand = self.population[random_whale_idx]
+                        D_rand = np.abs(C * X_rand - current_position)
+                        new_position = X_rand - A * D_rand
+                else:
+                    # Spiral Updating Position (Exploitation)
+                    D_prime = np.abs(best_position - current_position) # Distance of the i-th whale to the best solution
+                    new_position = D_prime * np.exp(l * pi) * cos(2 * pi * l) + best_position
+
+                # Apply binary transformation (sigmoid function and threshold)
+                # Ensure new_position is within [0, 1] range before binarization
+                # This is a common approach for binary WOA
+                sigmoid_transformed_position = 1 / (1 + np.exp(-new_position))
+                self.population[i] = (sigmoid_transformed_position > random.random()).astype(int)
+
+            current_best_fitness, current_z1, current_z2 = self._calculate_fitness(self.best_solution)
+            self.fitness_history.append(current_best_fitness)
+
+            if t % 10 == 0 or t == self.MAX_ITERATIONS - 1:
+                print(f"Iteration {t+1}/{self.MAX_ITERATIONS}, Best Fitness: {current_best_fitness:.2f}, Z1: {current_z1:.2f}, Z2: {current_z2:.2f}")
+
+        print("\nOptimization Finished.")
+        print(f"Final Best Fitness: {self.best_fitness:.2f}")
+        final_z1, final_z2 = self._calculate_fitness(self.best_solution)[1:]
+        print(f"Final Z1 (Time): {final_z1:.2f}")
+        print(f"Final Z2 (Cost): {final_z2:.2f}")
+
+        # Decode and print the best solution's decision variables
+        print("\nOptimal Decision Variables:")
+        x_it, x_lit, u_it, y_ikt, w_ijt, z_ik, v_ij = self._decode_solution(self.best_solution)
+
+        print("\nx_it (Hub Established):")
+        print(x_it)
+        print("\nx_lit (Backup Hub Assigned):")
+        print(x_lit)
+        print("\nu_it (Hub Failed):")
+        print(u_it)
+        print("\ny_ikt (Node-Hub Assignment):")
+        print(y_ikt)
+        print("\nw_ijt (Hub-Hub Connectivity):")
+        print(w_ijt)
+        print("\nz_ik (Node-Hub Data Transfer):")
+        print(z_ik)
+        print("\nv_ij (Hub-Hub Data Transfer):")
+        print(v_ij)
+
+        return self.best_solution, self.best_fitness, self.fitness_history
